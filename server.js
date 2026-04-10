@@ -6,6 +6,7 @@ app.use(express.json());
 let users = [
   { userId: 1, name: "Admin User", email: "admin@email.com", password: "Admin123", phone: "0800000000", role: "Admin" },
   { userId: 2, name: "Staff User", email: "staff@email.com", password: "Staff123", phone: "0800000001", role: "Staff" },
+  { userId: 3, name: "John Doe",   email: "dup@test.com",   password: "Pass1234", phone: "0812345678", role: "Customer" },
 ];
 
 let reservations = [
