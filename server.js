@@ -1,12 +1,19 @@
 const express = require("express");
 const app = express();
+const crypto = require("crypto");
 app.use(express.json());
 
 // ─── In-memory DB ───────────────────────────────────────────────────────────
+
+// Store for reset tokens: { token -> { email, expiresAt, used } }
+const resetTokens = new Map();
+const blacklistedTokens = new Set();
+
 let users = [
   { userId: 1, name: "Admin User", email: "admin@email.com", password: "Admin123", phone: "0800000000", role: "Admin" },
   { userId: 2, name: "Staff User", email: "staff@email.com", password: "Staff123", phone: "0800000001", role: "Staff" },
   { userId: 3, name: "John Doe",   email: "dup@test.com",   password: "Pass1234", phone: "0812345678", role: "Customer" },
+  { userId: 4, name: "Jane Smith", email: "test@example.com", password: "Pass1234", phone: "0812345679", role: "Customer" }
 ];
 
 let reservations = [
@@ -35,8 +42,12 @@ function generateToken(user) {
 function verifyToken(req) {
   const auth = req.headers["authorization"] || "";
   if (!auth.startsWith("Bearer ")) return null;
+  
   const token = auth.slice(7);
   try {
+    if (blacklistedTokens.has(token)) {
+      return res.status(401).json({ error: "Unauthorized", details: "Token has been invalidated" });
+    }
     const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
     if (payload.exp < Date.now()) return null;
     return payload;
@@ -138,6 +149,87 @@ app.post("/v1/auth/login", (req, res) => {
   loginAttempts[email] = 0;
   const token = generateToken(user);
   return res.json({ token, role: user.role });
+});
+
+// POST /auth/logout
+app.post("/v1/auth/logout", (req, res) => {
+  const auth = req.headers["authorization"] || "";
+  if (auth) {
+    blacklistedTokens.add(auth.split(" ")[1]);
+  }
+  return res.json({ message: "Logged out successfully" });
+});
+
+// Request password reset (generate token)
+app.post("/v1/auth/forgot-password", (req, res) => {
+  const { email } = req.body || {};
+
+  if (!email) {
+    return res.status(400).json({ error: "Invalid input data", details: "email is required" });
+  }
+
+  const user = users.find((u) => u.email === email);
+  if (!user) {
+    // Return 200 to prevent email enumeration attack
+    return res.status(200).json({ message: "If this email exists, a reset link has been sent" });
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+  resetTokens.set(token, { email, expiresAt, used: false });
+
+  // In production: send email with reset link
+  // sendResetEmail(email, token)
+
+  return res.status(200).json({ message: "If this email exists, a reset link has been sent", resetToken: token });
+});
+
+// Reset password
+app.post("/v1/auth/reset-password", (req, res) => {
+  const { token, newPassword, confirmPassword } = req.body || {};
+
+  if (!token || !newPassword || !confirmPassword) {
+    return res.status(400).json({ error: "Invalid input data", details: "token, newPassword, confirmPassword are required" });
+  }
+
+  const record = resetTokens.get(token);
+
+  // Attempt to use an Expired Token
+  if (!record || Date.now() > record.expiresAt) {
+    return res.status(400).json({ error: "Invalid or expired token" });
+  }
+
+  // Token Re-use Prevention
+  if (record.used) {
+    return res.status(400).json({ error: "Token has already been used" });
+  }
+
+  // New and Confirm Password Mismatch
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ error: "Invalid input data", details: "Passwords do not match" });
+  }
+
+  // Password validations
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "Invalid input data", details: "Password must be at least 8 characters" });
+  }
+  if (!/[A-Z]/.test(newPassword)) {
+    return res.status(400).json({ error: "Invalid input data", details: "Password must contain at least 1 uppercase letter" });
+  }
+  if (!/[0-9]/.test(newPassword)) {
+    return res.status(400).json({ error: "Invalid input data", details: "Password must contain at least 1 number" });
+  }
+
+  // Successful password reset
+  const user = users.find((u) => u.email === record.email);
+  user.password = newPassword;
+
+  // Mark token as used (Token Re-use Prevention)
+  record.used = true;
+  resetTokens.set(token, record);
+
+  return res.status(200).json({ message: "Password reset successful" });
 });
 
 // ─── Reservation APIs ─────────────────────────────────────────────────────────
