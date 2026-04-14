@@ -45,6 +45,61 @@ let restaurantSettings = {
   tableCount: 6,
 };
 
+// ─── Restaurant Info (Public) ─────────────────────────────────────────────────
+let restaurants = [
+  {
+    restaurantId: 1,
+    name: "MK Gold",
+    type: "Japanese",
+    cuisine: "Thai Sukiyaki / Shabu",
+    description: "Popular Thai-style sukiyaki and shabu restaurant chain with fresh ingredients and signature MK sauce.",
+    pricePerPerson: 369,
+    currency: "THB",
+    branches: [
+      { branchId: 1, name: "MK Central World",      address: "4/1 Ratchadamri Rd, Pathum Wan, Bangkok 10330",          phone: "02-613-1234", openTime: "11:00", closeTime: "22:00" },
+      { branchId: 2, name: "MK Siam Paragon",        address: "991 Rama I Rd, Pathum Wan, Bangkok 10330",               phone: "02-610-9234", openTime: "10:00", closeTime: "22:00" },
+      { branchId: 3, name: "MK The Mall Bangkapi",   address: "3522 Ladprao Rd, Khlong Chan, Bang Kapi, Bangkok 10240", phone: "02-734-1234", openTime: "10:30", closeTime: "21:30" },
+    ],
+    menu: [
+      { itemId: 101, name: "MK Gold Buffet",         price: 369,  description: "Premium buffet with wagyu, seafood, and unlimited drinks" },
+      { itemId: 102, name: "MK Standard Buffet",     price: 259,  description: "Classic buffet with pork, chicken, vegetables, and noodles" },
+      { itemId: 103, name: "Kids Buffet (under 12)", price: 159,  description: "Buffet for children under 12 years old" },
+      { itemId: 104, name: "MK Sauce (Extra)",       price: 29,   description: "Signature MK dipping sauce" },
+    ],
+    rating: 4.2,
+    reviewCount: 18420,
+    tags: ["Family-friendly", "Halal-option", "Group dining", "Sukiyaki", "Shabu"],
+    website: "https://www.mkrestaurant.com",
+    socialMedia: { facebook: "MKRestaurantThailand", instagram: "@mkrestaurant_th" },
+  },
+  {
+    restaurantId: 2,
+    name: "Shabu-X",
+    type: "Buffet",
+    cuisine: "Japanese Shabu Shabu",
+    description: "All-you-can-eat Japanese-style shabu shabu with premium broth selections including original, spicy, and sukiyaki broth.",
+    pricePerPerson: 459,
+    currency: "THB",
+    branches: [
+      { branchId: 1, name: "Sabu-X Mega Bangna",      address: "39 Moo 6, Bang Na-Trad Rd, Bang Kaeo, Bang Phli, Samut Prakan 10540", phone: "02-105-1234", openTime: "10:00", closeTime: "22:00" },
+      { branchId: 2, name: "Sabu-X Future Park Rangsit", address: "94 Phaholyothin Rd, Prachathipat, Thanyaburi, Pathum Thani 12130", phone: "02-958-1234", openTime: "10:00", closeTime: "22:00" },
+      { branchId: 3, name: "Sabu-X The Mall Lifestore Ngamwongwan", address: "Ngam Wong Wan Rd, Nonthaburi 11000",                    phone: "02-003-1234", openTime: "10:00", closeTime: "22:00" },
+    ],
+    menu: [
+      { itemId: 201, name: "Premium Buffet Adult",   price: 459,  description: "Unlimited wagyu, kurobuta pork, seafood, vegetables, broth" },
+      { itemId: 202, name: "Standard Buffet Adult",  price: 359,  description: "Unlimited standard meat, seafood, vegetables" },
+      { itemId: 203, name: "Kids Buffet (4-12 yrs)", price: 199,  description: "Buffet for children aged 4–12" },
+      { itemId: 204, name: "Toddler (under 4)",      price: 0,    description: "Free for children under 4 years old" },
+      { itemId: 205, name: "Premium Broth Upgrade",  price: 59,   description: "Upgrade to premium broth: tonkotsu, tom yum, or sukiyaki" },
+    ],
+    rating: 4.4,
+    reviewCount: 9870,
+    tags: ["Japanese", "Group dining", "Premium meat", "Shabu Shabu", "All-you-can-eat"],
+    website: "https://www.sabux.co.th",
+    socialMedia: { facebook: "SabuXThailand", instagram: "@sabux_thailand" },
+  },
+];
+
 let loginAttempts    = {};
 let nextUserId       = 100;
 let nextReservationId = 5002;
@@ -611,6 +666,48 @@ app.get("/v1/reservations", (req, res) => {
   return res.json(result);
 });
 
+// GET /v1/restaurants?type=&keyword=&name=&cuisine=&tag=&minPrice=&maxPrice=
+app.get("/v1/restaurants", (req, res) => {
+  const { type, keyword, name, cuisine, tag, minPrice, maxPrice } = req.query;
+  let result = [...restaurants];
+
+  // Exact type filter
+  if (type) result = result.filter((r) => r.type.toLowerCase() === type.toLowerCase());
+
+  // Partial name search
+  if (name) result = result.filter((r) => r.name.toLowerCase().includes(name.toLowerCase()));
+
+  // Partial cuisine search
+  if (cuisine) result = result.filter((r) => r.cuisine.toLowerCase().includes(cuisine.toLowerCase()));
+
+  // Partial tag search
+  if (tag) result = result.filter((r) => r.tags.some((t) => t.toLowerCase().includes(tag.toLowerCase())));
+
+  // Price range filter
+  if (minPrice) result = result.filter((r) => r.pricePerPerson >= Number(minPrice));
+  if (maxPrice) result = result.filter((r) => r.pricePerPerson <= Number(maxPrice));
+
+  // Keyword: partial match across name, cuisine, description, tags
+  if (keyword) {
+    const kw = keyword.toLowerCase();
+    result = result.filter(
+      (r) =>
+        r.name.toLowerCase().includes(kw)        ||
+        r.cuisine.toLowerCase().includes(kw)     ||
+        r.description.toLowerCase().includes(kw) ||
+        r.tags.some((t) => t.toLowerCase().includes(kw))
+    );
+  }
+
+  if (result.length === 0) {
+    return res.json({ message: "No restaurants found", data: [] });
+  }
+
+  return res.json(result.map(({ restaurantId, name, type, cuisine, pricePerPerson, currency, rating, reviewCount, tags }) => ({
+    restaurantId, name, type, cuisine, pricePerPerson, currency, rating, reviewCount, tags,
+  })));
+});
+
 // ─── Catch-all 404 ────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ error: "Endpoint not found" });
@@ -643,4 +740,8 @@ app.listen(PORT, () => {
   console.log(`     GET    /v1/admin/reservations    (Admin)`);
   console.log(`     GET    /v1/admin/settings        (Admin)`);
   console.log(`     PATCH  /v1/admin/settings        (Admin)\n`);
+  console.log(`     GET    /v1/restaurants           (Public + filters)`);
+  console.log(`     GET    /v1/restaurants/:id       (Public)`);
+  console.log(`     GET    /v1/restaurants/:id/branches (Public)`);
+  console.log(`     GET    /v1/restaurants/:id/menu     (Public)\n`);
 });
