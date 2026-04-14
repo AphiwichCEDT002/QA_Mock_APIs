@@ -514,6 +514,60 @@ app.delete("/v1/reservations/:reservationId", (req, res) => {
   return res.json({ message: "Reservation cancelled", reservationId: id });
 });
 
+// Table status for customers: GET /v1/tables/status
+// GET /v1/tables/available?date=2026-12-01&time=18:00&guestCount=2
+app.get("/v1/tables/available", (req, res) => {
+  const authUser = requireAuth(req, res);
+  if (!authUser) return;
+
+  const { date, time, guestCount } = req.query;
+
+  if (!date || !time || !guestCount) {
+    return res.status(400).json({ error: "Invalid input data", details: "date, time, guestCount are required" });
+  }
+
+  const guest = parseInt(guestCount);
+  if (isNaN(guest) || guest < 1 || guest > 10) {
+    return res.status(400).json({ error: "Invalid input data", details: "guestCount must be between 1 and 10" });
+  }
+  if (!isFutureDateTime(date, time)) {
+    return res.status(400).json({ error: "Invalid input data", details: "date and time must be in the future" });
+  }
+  if (!isWithinOperatingHours(time)) {
+    const { open, close } = restaurantSettings.operatingHours;
+    return res.status(400).json({ error: "Invalid input data", details: `Time must be within operating hours (${open}:00 - ${close}:00)` });
+  }
+
+  // Find booked tableIds for that slot (1-hour overlap window)
+  const [reqH, reqM] = time.split(":").map(Number);
+  const reqStart = reqH * 60 + reqM;
+  const reqEnd   = reqStart + 60;
+
+  const bookedTableIds = reservations
+    .filter((r) => {
+      if (r.date !== date || r.status !== "CONFIRMED") return false;
+      const [rH, rM] = r.time.split(":").map(Number);
+      const rStart = rH * 60 + rM;
+      return reqStart < rStart + 60 && reqEnd > rStart;
+    })
+    .map((r) => r.tableId);
+
+  const availableTables = tables.filter(
+    (t) => t.status === "AVAILABLE" && t.capacity >= guest && !bookedTableIds.includes(t.tableId)
+  );
+
+  if (availableTables.length === 0) {
+    return res.status(200).json({ message: "No tables available for the requested time and guest count", data: [] });
+  }
+
+  return res.status(200).json({
+    date,
+    time,
+    guestCount: guest,
+    availableCount: availableTables.length,
+    tables: availableTables.map(({ tableId, capacity }) => ({ tableId, capacity })),
+  });
+});
 // ═════════════════════════════════════════════════════════════════════════════
 // TABLE MANAGEMENT APIs (Staff / Admin)
 // ═════════════════════════════════════════════════════════════════════════════
