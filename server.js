@@ -41,7 +41,7 @@ let restaurantSettings = {
   name: "The Reserve Restaurant",
   address: "123 Main Street, Bangkok",
   pricePerPerson: 299.00,
-  operatingHours: { open: 10, close: 22 },
+  operatingHours: { open: 10, close: 21 },
   tableCount: 6,
 };
 
@@ -348,7 +348,10 @@ app.post("/v1/reservations", (req, res) => {
   const authUser = requireAuth(req, res);
   if (!authUser) return;
 
-  const { date, time, guestCount, specialRequest } = req.body || {};
+ 
+  const { date: rawDate, time: rawTime, guestCount, specialRequest } = req.body || {};
+  const date = rawDate?.trim();
+  const time = rawTime?.trim();
 
   if (!date || !time || guestCount == null) {
     return res.status(400).json({ error: "Invalid input data", details: "date, time, guestCount are required" });
@@ -521,51 +524,38 @@ app.get("/v1/tables/available", (req, res) => {
   if (!authUser) return;
 
   const { date, time, guestCount } = req.query;
-
-  if (!date || !time || !guestCount) {
-    return res.status(400).json({ error: "Invalid input data", details: "date, time, guestCount are required" });
-  }
-
   const guest = parseInt(guestCount);
-  if (isNaN(guest) || guest < 1 || guest > 10) {
-    return res.status(400).json({ error: "Invalid input data", details: "guestCount must be between 1 and 10" });
-  }
-  if (!isFutureDateTime(date, time)) {
-    return res.status(400).json({ error: "Invalid input data", details: "date and time must be in the future" });
-  }
-  if (!isWithinOperatingHours(time)) {
-    const { open, close } = restaurantSettings.operatingHours;
-    return res.status(400).json({ error: "Invalid input data", details: `Time must be within operating hours (${open}:00 - ${close}:00)` });
+
+  // Validation เบื้องต้น
+  if (!date || !time || isNaN(guest)) {
+    return res.status(400).json({ error: "Missing required query parameters" });
   }
 
-  // Find booked tableIds for that slot (1-hour overlap window)
+  // 1. คำนวณช่วงเวลาที่ต้องการ (จองครั้งละ 60 นาที)
   const [reqH, reqM] = time.split(":").map(Number);
   const reqStart = reqH * 60 + reqM;
-  const reqEnd   = reqStart + 60;
+  const reqEnd = reqStart + 60;
 
+  // 2. หา ID ของโต๊ะที่ไม่ว่าง (มีการจองช่วงนั้น + สถานะ CONFIRMED)
   const bookedTableIds = reservations
     .filter((r) => {
       if (r.date !== date || r.status !== "CONFIRMED") return false;
       const [rH, rM] = r.time.split(":").map(Number);
       const rStart = rH * 60 + rM;
-      return reqStart < rStart + 60 && reqEnd > rStart;
+      return reqStart < rStart + 60 && reqEnd > rStart; // Overlap check
     })
     .map((r) => r.tableId);
 
-  const availableTables = tables.filter(
-    (t) => t.status === "AVAILABLE" && t.capacity >= guest && !bookedTableIds.includes(t.tableId)
+  // 3. กรองโต๊ะที่สถานะเป็น AVAILABLE, ความจุพอ และไม่โดนจอง
+  const availableTables = tables.filter((t) => 
+    t.status === "AVAILABLE" && 
+    t.capacity >= guest && 
+    !bookedTableIds.includes(t.tableId)
   );
 
-  if (availableTables.length === 0) {
-    return res.status(200).json({ message: "No tables available for the requested time and guest count", data: [] });
-  }
-
-  return res.status(200).json({
-    date,
-    time,
-    guestCount: guest,
+  return res.json({
     availableCount: availableTables.length,
-    tables: availableTables.map(({ tableId, capacity }) => ({ tableId, capacity })),
+    tables: availableTables.map(({ tableId, capacity }) => ({ tableId, capacity }))
   });
 });
 // ═════════════════════════════════════════════════════════════════════════════
